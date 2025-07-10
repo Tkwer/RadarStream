@@ -5,8 +5,8 @@ from dsp.utils import Window
 from ctypes import *
 
 # 这一块处理需要手动修改代码很不友好，希望有人能pull  request
-dll = cdll.LoadLibrary('realtimeSystem/libs/UDPCAPTUREADCRAWDATA.dll')
-# dll = cdll.LoadLibrary('realtimeSystem/dll/libtest.so')
+dll = cdll.LoadLibrary('libs/UDPCAPTUREADCRAWDATA.dll')
+# dll = cdll.LoadLibrary('libs/libtest.so')
 
 a = np.zeros(1).astype(np.int)
 # 内存大小至少是frame_length的两倍 ，双缓冲区
