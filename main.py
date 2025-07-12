@@ -12,8 +12,8 @@ import numpy as np
 from serial.tools import list_ports
 import iwr6843_tlv.detected_points as readpoint
 import globalvar as gl
-# import models.predict as predict
-# from models.model import CNet, FeatureFusionNet
+from model_load import model_load_with_yaml, realtime_inference_with_prediction
+from models.model import MultiViewFeatureFusion
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 import matplotlib.pyplot as plt
@@ -42,12 +42,9 @@ cnt = 0
 _flagdisplay = False
 
 def loadmodel():
-    global model
+    global model,args
     if (modelfile.currentText()!='--select--'and modelfile.currentText()!=''):
-        model_info = torch.load(modelfile.currentText(),map_location='cpu')
-        # TODO: 
-        model = []
-        model.load_state_dict(model_info['state_dict'])
+        model, args = model_load_with_yaml(os.path.join(modelfile.currentText(), 'output/args.yaml'), os.path.join(modelfile.currentText(),'model_best.pth.tar'))
         printlog('加载'+modelfile.currentText()+'模型成功!',fontcolor='blue')
     else:
         printlog("请加载模型!",fontcolor='red')
@@ -68,6 +65,41 @@ def Judge_gesture(a,b,c,d,e):
         printlog("输出:" + gesturedict[str(fanhui)],fontcolor='blue')
         return gesturedict[str(fanhui)]
 
+def Judge_gesture_new(RT_feature, DT_feature, RDT_feature, ART_feature, ERT_feature):
+    """
+    新的手势识别函数，替换原来的Judge_gesture函数
+    """
+    global model, args, _flagdisplay
+    
+    if model is None:
+        print("请先加载模型!", 'fontcolor=red')
+        return gesturedict['7']  # 返回'NO'
+    
+    try:
+        # 执行实时推理
+        time_start = time.time()  # 记录开始时间
+        predicted_class, predicted_gesture, confidence_score, raw_outputs = realtime_inference_with_prediction(
+            args, model, ART_feature, DT_feature, ERT_feature, RT_feature, RDT_feature, gesturedict
+        )
+        time_end = time.time()  # 记录结束时间
+        time_sum = time_end - time_start  # 计算的时间差为程序的执行时间，单位为秒/s
+        printlog('识别时间:'+str(time_sum)+'s, '+'识别结果:'+predicted_gesture +f', 置信度: {confidence_score:.3f}',fontcolor='blue')
+        
+        # 可以根据置信度设置阈值，低于阈值时返回'NO'
+        confidence_threshold = 0.5
+        if confidence_score < confidence_threshold:
+            print(f"置信度过低({confidence_score:.3f} < {confidence_threshold})，返回NO", 'fontcolor=yellow')
+            return gesturedict['7']  # 返回'NO'
+        view_gesture.setPixmap(QtGui.QPixmap("gesture_icons/"+str(predicted_class)+".jpg"))
+        subWin.img_update("gesture_icons/"+str(predicted_class)+".jpg")
+        QtCore.QTimer.singleShot(800, cleartjpg)
+        _flagdisplay = True
+        return predicted_gesture
+        
+    except Exception as e:
+        print(f"推理过程出错: {str(e)}", 'fontcolor=red')
+        return gesturedict['7']  # 返回'NO'
+    
 def update_figure():
     global img_rdi, img_rai, img_rti, img_rei, img_dti
     global idx,cnt
@@ -95,12 +127,10 @@ def update_figure():
         if Recognizebtn.isChecked():
             # 识别
             
-            time_start = time.time()  # 记录开始时间
-            result = Judge_gesture(RT_feature,DT_feature,RDT_feature,
+            
+            result = Judge_gesture_new(RT_feature,DT_feature,RDT_feature,
                                             ART_feature,ERT_feature)
-            time_end = time.time()  # 记录结束时间
-            time_sum = time_end - time_start  # 计算的时间差为程序的执行时间，单位为秒/s
-            printlog('识别时间:'+str(time_sum)+'s, '+'识别结果:'+result,fontcolor='blue')
+
 
 
         elif CaptureDatabtn.isChecked() and datasetsencefile != '':
@@ -377,3 +407,5 @@ if __name__ == '__main__':
     
     print("Program close")
     sys.exit()
+
+

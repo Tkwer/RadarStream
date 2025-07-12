@@ -3,12 +3,13 @@ import numpy as np
 import DSP
 from dsp.utils import Window
 from ctypes import *
+import time
 
 # 这一块处理需要手动修改代码很不友好，希望有人能pull  request
 dll = cdll.LoadLibrary('libs/UDPCAPTUREADCRAWDATA.dll')
 # dll = cdll.LoadLibrary('libs/libtest.so')
 
-a = np.zeros(1).astype(np.int)
+a = np.zeros(1).astype(np.int32)
 # 内存大小至少是frame_length的两倍 ，双缓冲区
 # 98304 的计算方法是例如你的配置如下：
 
@@ -51,6 +52,12 @@ class DataProcessor(th.Thread):
         self.rai_queue = rai_queue
         self.rei_queue = rei_queue
 
+        # 时间统计变量
+        self.frame_count = 0
+        self.rda_time_total = 0.0  # RDA_Time函数总耗时
+        self.range_angle_total = 0.0  # Range_Angle函数总耗时
+        self.stats_interval = 100  # 每100帧统计一次
+
     def run(self):
         global frame_count
         frame_count = 0
@@ -82,13 +89,39 @@ class DataProcessor(th.Thread):
                 data = np.concatenate([ch1_data, ch2_data, ch3_data], axis=2)
 
                 frame_count += 1
+                self.frame_count += 1
 
+                # 统计RDA_Time函数执行时间
+                start_time = time.time()
                 rti, rdi, dti = DSP.RDA_Time(
                     data, window_type_1d=Window.HANNING, axis=1)
+                rda_time = time.time() - start_time
+                self.rda_time_total += rda_time
 
+                # 统计Range_Angle函数执行时间
+                start_time = time.time()
                 # _, rdi = DSP.Range_Doppler(data, mode=2, padding_size=[128, 64])
                 rai, rei = DSP.Range_Angle(
                     data, padding_size=[128, 64, 64])
+                range_angle_time = time.time() - start_time
+                self.range_angle_total += range_angle_time
+
+                # 每100帧打印一次统计信息
+                if self.frame_count % self.stats_interval == 0 and 0:
+                    avg_rda_time = self.rda_time_total / self.stats_interval
+                    avg_range_angle_time = self.range_angle_total / self.stats_interval
+                    total_avg_time = avg_rda_time + avg_range_angle_time
+
+                    print(f"=== 处理时间统计 (第{self.frame_count}帧) ===")
+                    print(f"RDA_Time平均耗时: {avg_rda_time*1000:.2f} ms")
+                    print(f"Range_Angle平均耗时: {avg_range_angle_time*1000:.2f} ms")
+                    print(f"总平均耗时: {total_avg_time*1000:.2f} ms")
+                    print(f"平均帧率: {1/total_avg_time:.1f} FPS")
+                    print("=" * 40)
+
+                    # 重置统计变量
+                    self.rda_time_total = 0.0
+                    self.range_angle_total = 0.0
                 self.rti_queue.put(rti)
                 self.dti_queue.put(dti)
                 self.rdi_queue.put(rdi)

@@ -1,0 +1,2 @@
+train dataset: ['dataset/person_1', 'dataset/person_2', 'dataset/dataS', 'dataset/person_3', 'dataset/person_4', 'dataset/person_5', 'dataset/person_6', 'dataset/person_7', 'dataset/person_8', 'dataset/person_9', 'dataset/person_10']
+train ratios: [0.8, 0.8, 0.8, 0.8, 0.8]

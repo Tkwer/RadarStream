@@ -627,7 +627,7 @@ def gen_steering_vec(ang_est_range, ang_est_resolution, num_ant):
             real = np.cos(mag)
             imag = np.sin(mag)
 
-            steering_vectors[kk, jj] = np.complex(real, imag)
+            steering_vectors[kk, jj] = complex(real, imag)
 
     return [num_vec, steering_vectors]
 

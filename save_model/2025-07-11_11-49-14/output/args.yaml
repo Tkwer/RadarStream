@@ -1,0 +1,139 @@
+backbone: lenet5
+batch_size: 24
+bidirectional: true
+class_mapping:
+  0: Back
+  1: Dblclick
+  2: Down
+  3: Front
+  4: Left
+  5: Right
+  6: Up
+  7: Unknown
+cnn_output_size: 64
+config: code/examples/conf2.yaml
+epochs: 32
+fc_size: 64
+freeze: false
+fusion_mode: attention
+hidden_size: 64
+input_feature_shapes:
+  ART:
+  - 12
+  - 1
+  - 91
+  - 64
+  DT:
+  - 1
+  - 12
+  - 64
+  ERT:
+  - 12
+  - 1
+  - 91
+  - 64
+  RDT:
+  - 12
+  - 1
+  - 64
+  - 64
+  RT:
+  - 1
+  - 48
+  - 64
+is_augmentation: 0
+is_domain_loss: 0
+is_sharedspecific: 0
+is_test: false
+is_weights_loss: 1
+lr: 0.001
+lr_step: 10
+lstm_layers: 1
+method: DScombine
+model_path: ./save_model/
+mv_feature_weights:
+  0:
+    ART: 0.05
+    DT: 0.05
+    ERT: 0.05
+    RDT: 0.05
+    RT: 0.8
+  1:
+    ART: 0.0
+    DT: 0.4
+    ERT: 0.0
+    RDT: 0.2
+    RT: 0.4
+  2:
+    ART: 0.05
+    DT: 0.05
+    ERT: 0.8
+    RDT: 0.05
+    RT: 0.05
+  3:
+    ART: 0.05
+    DT: 0.05
+    ERT: 0.05
+    RDT: 0.05
+    RT: 0.8
+  4:
+    ART: 0.8
+    DT: 0.2
+    ERT: 0.0
+    RDT: 0.0
+    RT: 0.0
+  5:
+    ART: 0.8
+    DT: 0.2
+    ERT: 0.0
+    RDT: 0.0
+    RT: 0.0
+  6:
+    ART: 0.05
+    DT: 0.05
+    ERT: 0.8
+    RDT: 0.05
+    RT: 0.05
+num_domains: 5
+optional_features:
+- ART
+- DT
+- ERT
+- RDT
+- RT
+rnn_type: lstm
+save_path: ./save_model/all/attention/DScombine/2025-07-11_11-49-14
+selected_features:
+- RT
+- DT
+- RDT
+- ERT
+- ART
+snr_db: null
+test_data_dir:
+- dataset/dataS
+- dataset/person_11/P11_10cm
+- dataset/person_11/P11_20cm
+- dataset/person_11/P11_30cm
+- dataset/person_11/P11_45q
+- dataset/person_11/P11_90q
+- dataset/person_11/P11_incar
+train_and_vali_data_dir:
+- dataset/person_1
+- dataset/person_2
+- dataset/dataS
+- dataset/person_3
+- dataset/person_4
+- dataset/person_5
+- dataset/person_6
+- dataset/person_7
+- dataset/person_8
+- dataset/person_9
+- dataset/person_10
+train_ratio:
+- 0.8
+- 0.8
+- 0.8
+- 0.8
+- 0.8
+workers: 0
