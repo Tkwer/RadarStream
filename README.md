@@ -115,6 +115,32 @@ The repository includes STL files for a 3D printed structure designed to mount a
 If this project helps your research, please consider citing our papers that are closely related to this tool:
 
 ```
+@ARTICLE{11270504,
+  author={Chen, Qin and Lu, Qunfeng and Chen, Yaoxi and Tian, Yu and Cui, Zongyong and Cao, Zongjie},
+  journal={IEEE Transactions on Instrumentation and Measurement}, 
+  title={Domain-Generalized Gesture Recognition via mmWave Radar Signal Multi-View Learning}, 
+  year={2025},
+  doi={10.1109/TIM.2025.3637962}}
+
+@ARTICLE{10714388,
+  author={Chen, Qin and Cui, Zongyong and Tian, Yu and Chen, Yaoxi and Cao, Zongjie},
+  journal={IEEE Internet of Things Journal}, 
+  title={Joint Position Estimation for Hand Motion Using MIMO FMCW mmWave Radar}, 
+  year={2025},
+  volume={12},
+  number={3},
+  pages={2838-2853},
+  doi={10.1109/JIOT.2024.3478234}}
+
+@ARTICLE{10288185,
+  author={Chen, Qin and Cui, Zongyong and Zhou, Zheng and Tian, Yu and Cao, Zongjie},
+  journal={IEEE Internet of Things Journal}, 
+  title={MMHTSR: In-Air Handwriting Trajectory Sensing and Reconstruction Based on mmWave Radar}, 
+  year={2024},
+  volume={11},
+  number={6},
+  pages={10069-10083},
+  doi={10.1109/JIOT.2023.3325258}}
 
 ```
 
