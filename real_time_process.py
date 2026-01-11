@@ -4,10 +4,6 @@ import DSP
 from dsp.utils import Window
 from ctypes import *
 
-# 这一块处理需要手动修改代码很不友好，希望有人能pull  request
-dll = cdll.LoadLibrary('realtimeSystem/libs/UDPCAPTUREADCRAWDATA.dll')
-# dll = cdll.LoadLibrary('realtimeSystem/dll/libtest.so')
-
 a = np.zeros(1).astype(np.int)
 # 内存大小至少是frame_length的两倍 ，双缓冲区
 # 98304 的计算方法是例如你的配置如下：
@@ -26,14 +22,15 @@ b_ctypes_ptr = cast(b.ctypes.data, POINTER(c_short))
 
 
 class UdpListener(th.Thread):
-    def __init__(self, name, bin_data, data_frame_length):
+    def __init__(self, name, bin_data, data_frame_length, dll_file_path):
         th.Thread.__init__(self, name=name)
         self.bin_data = bin_data
         self.frame_length = data_frame_length
+        self.dll = cdll.LoadLibrary(dll_file_path)
 
     def run(self):
         global a_ctypes_ptr, b_ctypes_ptr
-        dll.captureudp(a_ctypes_ptr, b_ctypes_ptr, self.frame_length)
+        self.dll.captureudp(a_ctypes_ptr, b_ctypes_ptr, self.frame_length)
 
 
 class DataProcessor(th.Thread):

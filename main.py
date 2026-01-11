@@ -1,3 +1,5 @@
+import argparse
+
 from real_time_process import UdpListener, DataProcessor
 from radar_config import SerialConfig
 from radar_config import DCA1000Config
@@ -339,6 +341,11 @@ def application():
 
 
 if __name__ == '__main__':
+    # parse arguments
+    parser = argparse.ArgumentParser(prog='RadarStream')
+    parser.add_argument('--dll-path', default='libs/UDPCAPTUREADCRAWDATA.dll', help='path to the dll file')
+    args = parser.parse_args()
+
     # Queue for access data
     BinData = Queue() # 原始数据队列
 
@@ -363,8 +370,7 @@ if __name__ == '__main__':
     # config DCA1000 to receive bin data
     dca1000_cfg = DCA1000Config('DCA1000Config',config_address = ('192.168.33.30', 4096),
                                                 FPGA_address_cfg=('192.168.33.180', 4096))
-
-    collector = UdpListener('Listener', BinData, frame_length)
+    collector = UdpListener('Listener', BinData, frame_length, args.dll_path)
     processor = DataProcessor('Processor', radar_config, BinData, RTIData, DTIData, 
                                              RDIData, RAIData, REIData)
     collector.start()
