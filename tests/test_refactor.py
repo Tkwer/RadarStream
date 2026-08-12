@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import tempfile
 import unittest
 from ctypes import c_int
 from multiprocessing import RawArray
@@ -17,6 +18,10 @@ from data_pipeline import DataProcessor, UdpListener
 from hardware_interfaces import (
     Dca1000Controller,
     HardwareConnectionError,
+    RadarCliClient,
+    RadarCliCommandError,
+    classify_cli_response,
+    is_radar_config_comment,
     select_preferred_cli_port,
 )
 from radar_dsp import utils
@@ -60,6 +65,33 @@ class WinErrorSocket:
 
     def close(self):
         self.closed = True
+
+
+class FakeSerialPort:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.current_response = b""
+        self.writes = []
+        self.is_open = True
+
+    def reset_input_buffer(self):
+        self.current_response = b""
+
+    def write(self, data):
+        self.writes.append(data)
+        self.current_response = self.responses.pop(0)
+
+    @property
+    def in_waiting(self):
+        return len(self.current_response)
+
+    def read(self, size):
+        data = self.current_response[:size]
+        self.current_response = self.current_response[size:]
+        return data
+
+    def close(self):
+        self.is_open = False
 
 
 class RuntimeStateTests(unittest.TestCase):
@@ -180,6 +212,80 @@ class ConfigurationTests(unittest.TestCase):
                 Dca1000Controller("test")
 
         self.assertTrue(fake_socket.closed)
+
+
+class RadarCliClientTests(unittest.TestCase):
+    def test_response_colors_match_cli_meaning(self):
+        self.assertEqual("green", classify_cli_response("Done"))
+        self.assertEqual("gray", classify_cli_response("Skipped"))
+        self.assertEqual("gray", classify_cli_response("mmwDemo:/>"))
+        self.assertEqual("red", classify_cli_response("Ignored: already stopped"))
+        self.assertEqual(
+            "red",
+            classify_cli_response("'bad' is not recognized as a CLI command"),
+        )
+
+    def test_comment_and_separator_detection(self):
+        self.assertTrue(is_radar_config_comment("% Created by Visualizer"))
+        self.assertTrue(is_radar_config_comment("***************"))
+        self.assertTrue(is_radar_config_comment(""))
+        self.assertFalse(is_radar_config_comment("profileCfg 0 60"))
+
+    def test_config_comments_are_logged_but_not_sent(self):
+        serial_port = FakeSerialPort(
+            [b"sensorStart\r\nDone\r\nmmwDemo:/>\r\n"]
+        )
+        log_entries = []
+        client = RadarCliClient(
+            "test",
+            "COM11",
+            log_callback=lambda message, color: log_entries.append(
+                (message, color)
+            ),
+            serial_factory=lambda *args, **kwargs: serial_port,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = os.path.join(temp_dir, "radar.cfg")
+            with open(config_path, "w", encoding="utf-8") as config_file:
+                config_file.write(
+                    "% Created for SDK ver:03.04\n"
+                    "***************\n"
+                    "sensorStart\n"
+                )
+
+            client.send_config(config_path)
+
+        self.assertEqual([b"sensorStart\n"], serial_port.writes)
+        self.assertIn(("注释: % Created for SDK ver:03.04", "gray"), log_entries)
+        self.assertIn(("注释: ***************", "gray"), log_entries)
+        self.assertIn(("发送: sensorStart", "blue"), log_entries)
+        self.assertIn(("接收: Done", "green"), log_entries)
+
+    def test_rejected_command_is_red_and_raises(self):
+        serial_port = FakeSerialPort(
+            [
+                b"badCommand\r\n"
+                b"'badCommand' is not recognized as a CLI command\r\n"
+                b"mmwDemo:/>\r\n"
+            ]
+        )
+        log_entries = []
+        client = RadarCliClient(
+            "test",
+            "COM11",
+            log_callback=lambda message, color: log_entries.append(
+                (message, color)
+            ),
+            serial_factory=lambda *args, **kwargs: serial_port,
+        )
+
+        with self.assertRaises(RadarCliCommandError):
+            client._send_line("badCommand")
+
+        self.assertTrue(
+            any(color == "red" and "not recognized" in message
+                for message, color in log_entries)
+        )
 
 
 class DataProcessorTests(unittest.TestCase):

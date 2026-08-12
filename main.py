@@ -432,10 +432,12 @@ class RadarStreamApplication:
                 self.radar_ctrl = None
 
         radar_ctrl = RadarCliClient(
-            name="ConnectRadar", cli_port=com_port, settings=self.config.serial
+            name="ConnectRadar",
+            cli_port=com_port,
+            settings=self.config.serial,
+            log_callback=self.print_log,
         )
         try:
-            radar_ctrl.stop_radar()
             radar_ctrl.send_config(config_path)
         except Exception:
             try:

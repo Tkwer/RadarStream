@@ -204,9 +204,6 @@ class RadarSignalProcessor:
         elevation = np.flip(np.abs(self.range_elevation), axis=1)
         azimuth = np.minimum(azimuth, azimuth.max() / 2)
         elevation = np.minimum(elevation, elevation.max() / 2)
-        cutoff = min(self.settings.angle_range_cutoff, azimuth.shape[1])
-        azimuth[:, cutoff:] = 0
-        elevation[:, cutoff:] = 0
         azimuth = self._normalize_angle_map(azimuth, frame_snr)
         elevation = self._normalize_angle_map(elevation, frame_snr)
 

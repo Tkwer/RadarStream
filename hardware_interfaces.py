@@ -10,6 +10,46 @@ class HardwareConnectionError(ConnectionError):
     """Raised when a radar capture interface cannot be initialized."""
 
 
+class RadarCliCommandError(HardwareConnectionError):
+    """Raised when the radar rejects a CLI configuration command."""
+
+
+CLI_ERROR_MARKERS = (
+    "not recognized",
+    "error",
+    "failed",
+    "failure",
+    "invalid",
+    "exception",
+)
+
+
+def classify_cli_response(line):
+    """Return the UI color for one radar CLI response line."""
+
+    normalized = line.strip().lower()
+    if any(marker in normalized for marker in CLI_ERROR_MARKERS):
+        return "red"
+    if "ignored" in normalized or "warning" in normalized:
+        return "red"
+    if normalized == "done" or normalized.endswith(" done"):
+        return "green"
+    if "skipped" in normalized or normalized.startswith("mmwdemo:/>"):
+        return "gray"
+    return "gray"
+
+
+def is_radar_config_comment(line):
+    """Identify comments and decorative separators that must not be sent."""
+
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if stripped.startswith(("%", "#", "//")):
+        return True
+    return all(character in "*-=_" for character in stripped)
+
+
 def select_preferred_cli_port(ports):
     """Choose the radar configuration UART from discovered serial ports.
 
@@ -54,12 +94,24 @@ def select_preferred_cli_port(ports):
 class RadarCliClient:
     """Send CLI configuration commands to a TI radar evaluation module."""
 
-    def __init__(self, name, cli_port, baud_rate=None, settings=None):
-        import serial
+    def __init__(
+        self,
+        name,
+        cli_port,
+        baud_rate=None,
+        settings=None,
+        log_callback=None,
+        serial_factory=None,
+    ):
+        if serial_factory is None:
+            import serial
+
+            serial_factory = serial.Serial
 
         self.name = name
         self.settings = settings or SerialPortConfig()
-        self.cli_port = serial.Serial(
+        self.log_callback = log_callback
+        self.cli_port = serial_factory(
             cli_port,
             baudrate=baud_rate or self.settings.cli_baud_rate,
         )
@@ -71,27 +123,67 @@ class RadarCliClient:
     def send_config(self, config_file_name):
         with open(config_file_name, encoding="utf-8") as config_file:
             for line in config_file:
-                self._send_line(line)
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if is_radar_config_comment(stripped):
+                    self._log("注释: {}".format(stripped), "gray")
+                    continue
+                self._send_line(stripped)
 
     def _send_line(self, line):
-        self.cli_port.write((line.rstrip("\r\n") + "\n").encode())
-        print("Sent: {}".format(line.strip()))
+        command = line.strip()
+        reset_input = getattr(self.cli_port, "reset_input_buffer", None)
+        if reset_input is not None:
+            reset_input()
+        self.cli_port.write((command + "\n").encode())
+        self._log("发送: {}".format(command), "blue")
 
         start_time = time.time()
         response = b""
         while time.time() - start_time < self.settings.response_timeout_seconds:
             if self.cli_port.in_waiting > 0:
                 response += self.cli_port.read(self.cli_port.in_waiting)
+                if b"mmwDemo:/>" in response:
+                    break
             time.sleep(self.settings.line_delay_seconds)
 
-        print("Received: {}".format(response.decode(errors="ignore").strip()))
+        response_text = response.decode(errors="ignore").strip()
+        if not response_text:
+            self._log("接收: 未收到雷达响应", "red")
+            raise RadarCliCommandError(
+                "命令 {!r} 未收到雷达响应".format(command)
+            )
+
+        has_command_error = False
+        for response_line in response_text.splitlines():
+            response_line = response_line.strip()
+            if not response_line:
+                continue
+            color = classify_cli_response(response_line)
+            self._log("接收: {}".format(response_line), color)
+            normalized = response_line.lower()
+            if any(marker in normalized for marker in CLI_ERROR_MARKERS):
+                has_command_error = True
+
         time.sleep(self.settings.line_delay_seconds)
+        if has_command_error:
+            raise RadarCliCommandError(
+                "雷达拒绝命令 {!r}: {}".format(command, response_text)
+            )
+        return response_text
+
+    def _log(self, message, color):
+        if self.log_callback is not None:
+            self.log_callback(message, color)
+        else:
+            print(message)
 
     def start_radar(self):
-        self.cli_port.write(b"sensorStart\n")
+        return self._send_line("sensorStart")
 
     def stop_radar(self):
-        self.cli_port.write(b"sensorStop\n")
+        return self._send_line("sensorStop")
 
     def close(self):
         self.cli_port.close()

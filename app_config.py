@@ -83,7 +83,6 @@ class DspConfig:
     micro_doppler_noise_floor: float = 20.0
     angle_snr_offset: float = 14.7
     angle_snr_dead_zone: float = 1.8
-    angle_range_cutoff: int = 40
     rti_display_stride: int = 16
     angle_history_start: int = 4
     angle_history_stop: int = 12
