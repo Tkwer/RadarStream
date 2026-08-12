@@ -6,26 +6,18 @@
 #
 # WARNING! All changes made in this file will be lost!
 
+import os
+import sys
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtWidgets import QComboBox
-import sys
+from PyQt5.QtGui import QCursor, QPixmap
+from PyQt5.QtWidgets import QComboBox, QLabel, QWidget
 from pyqtgraph import GraphicsLayoutWidget
-import globalvar as gl
 import pyqtgraph as pg
-import os
-import matplotlib.cm
 import time
-import sys
-import os
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
-gl._init()
-gl.set_value('usr_gesture', False)
 
-
-radarRFconfigpathfile = 'config'
-modelpathfile = 'save_model'
+from app_config import DEFAULT_CONFIG
 
 
 # ----新的combox 单机框任何地方都有响应 ---- #
@@ -37,12 +29,13 @@ class ClickedComboBox(QComboBox):
         self.arrowClicked.emit()
 
 # 最小化窗口
-class Qt_pet(QWidget):
+class GestureOverlayWindow(QWidget):
 
-    def __init__(self,MainWindow):
-        super(Qt_pet, self).__init__()
+    def __init__(self,MainWindow, icon_dir=None):
+        super().__init__()
         self.MainWindow = MainWindow
-        self.dis_file = "gesture_icons/"
+        self.icon_dir = icon_dir or DEFAULT_CONFIG.paths.gesture_icon_dir
+        self.dis_file = str(self.icon_dir)
         self.windowinit()
 
         self.pos_first = self.pos()
@@ -57,7 +50,7 @@ class Qt_pet(QWidget):
         self.x = 800
         self.y = 600
         self.setGeometry(self.x, self.y, 256, 256)
-        self.img_path = 'gesture_icons/7.jpg'
+        self.img_path = str(self.icon_dir / '7.jpg')
         self.lab = QLabel(self)
         self.qpixmap = QPixmap(self.img_path).scaled(256, 256)
         self.lab.setPixmap(self.qpixmap)
@@ -85,6 +78,10 @@ class Qt_pet(QWidget):
 
 
 class Ui_MainWindow(object):
+    def __init__(self, config=DEFAULT_CONFIG, runtime_state=None):
+        self.config = config
+        self.runtime_state = runtime_state
+
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1280, 800)
@@ -535,29 +532,34 @@ class Ui_MainWindow(object):
             self.pushButton_15.setChecked(False)
             self.Iscapture(self.pushButton_15,'recognizing','recognize')
         elif box_name == 'box_3' and self.groupBox_3.isChecked()==False:
-            gl.set_value('IsRecognizeorCapture',False)
+            self._set_processing_enabled(False)
             # self.printlog(self.textEdit, 'IsRecognizeorCapture:False',fontcolor='green')
-            self.graphicsView_5.setPixmap(QtGui.QPixmap("gesture_icons/7.jpg"))
+            self.graphicsView_5.setPixmap(QtGui.QPixmap(str(self.config.paths.gesture_icon(7))))
         elif box_name == 'box_4' and self.groupBox_4.isChecked()==False:
-            gl.set_value('IsRecognizeorCapture',False)
+            self._set_processing_enabled(False)
             # self.printlog(self.textEdit, 'IsRecognizeorCapture:False',fontcolor='green')
-            self.graphicsView_5.setPixmap(QtGui.QPixmap("gesture_icons/7.jpg"))
+            self.graphicsView_5.setPixmap(QtGui.QPixmap(str(self.config.paths.gesture_icon(7))))
 
     def Iscapture(self,btn,text1,text2):
         if btn.isChecked():
-            gl.set_value('IsRecognizeorCapture',True)
+            self._set_processing_enabled(True)
             # self.printlog(self.textEdit, 'IsRecognizeorCapture:True',fontcolor='green')
             btn.setText(text1)
         else:
-            gl.set_value('IsRecognizeorCapture',False)
+            self._set_processing_enabled(False)
             self.printlog(self.textEdit, 'IsRecognizeorCapture:False',fontcolor='green')
-            self.graphicsView_5.setPixmap(QtGui.QPixmap("gesture_icons/7.jpg"))
+            self.graphicsView_5.setPixmap(QtGui.QPixmap(str(self.config.paths.gesture_icon(7))))
             btn.setText(text2)
+
+    def _set_processing_enabled(self, enabled):
+        if self.runtime_state is not None:
+            self.runtime_state.set_processing_enabled(enabled)
 
     def modelpath(self):
         self.comboBox_2.clear()
         self.comboBox_2.addItem("--select--")
         list = []
+        modelpathfile = str(self.config.paths.model_dir)
         if (os.path.exists(modelpathfile)):
             files = os.listdir(modelpathfile)
             for file in files:
@@ -568,6 +570,7 @@ class Ui_MainWindow(object):
         self.comboBox_7.clear()
         self.comboBox_7.addItem("--select--")
         list = []
+        radarRFconfigpathfile = str(self.config.paths.radar_config_dir)
         if (os.path.exists(radarRFconfigpathfile)):
             files = os.listdir(radarRFconfigpathfile)
             for file in files:
@@ -575,6 +578,8 @@ class Ui_MainWindow(object):
         self.comboBox_7.addItems(list)
 
     def getcolorlist(self):
+        import matplotlib.cm
+
         values=matplotlib.cm.cmap_d.keys()
         self.comboBox.addItem("--select--")
         self.comboBox.addItem("customize")
@@ -594,5 +599,4 @@ if __name__ == '__main__':
     MainWindow.show()
     ui = Ui_MainWindow()
     ui.setupUi(MainWindow)
-    # subWin = Qt_pet()
     sys.exit(app.exec_())

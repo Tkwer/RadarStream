@@ -10,11 +10,9 @@
 # limitations under the License.
 # ==============================================================================
 
-from .angle_estimation import *
-from .cfar import *
-from .compensation import *
-from .doppler_processing import *
-from .range_processing import *
-from .utils import *
-from .noise_removal import *
-from .music import *
+"""Radar DSP algorithms.
+
+Submodules are intentionally not imported eagerly.  Callers should import the
+specific algorithm they use (for example ``radar_dsp.range_processing``). This
+keeps optional dependencies such as SciPy out of unrelated processing paths.
+"""

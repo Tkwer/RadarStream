@@ -1,379 +1,526 @@
-from real_time_process import UdpListener, DataProcessor
-from radar_config import SerialConfig
-from radar_config import DCA1000Config
-from queue import Queue
+"""RadarStream application entry point and UI controller."""
+
+import html
+import os
+import sys
+import time
+from queue import Empty, Queue
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "True")
+
+import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtWidgets
-from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
-import time
-import torch
-import sys
-import numpy as np
+from pyqtgraph.Qt import QtCore, QtGui
 from serial.tools import list_ports
-import iwr6843_tlv.detected_points as readpoint
-import globalvar as gl
-# import models.predict as predict
-# from models.model import CNet, FeatureFusionNet
-import os
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
-import matplotlib.pyplot as plt
-from colortrans import pg_get_cmap
 
-# -----------------------------------------------
-from UI_interface import Ui_MainWindow, Qt_pet
-# -----------------------------------------------
-
-
-datasetfile = 'dataset'
-datasetsencefile = ' '
-gesturedict = {
-                '0':'backward',
-                '1':'dbclick',
-                '2':'down',
-                '3':'front',
-                '4':'Left',
-                '5':'Right',
-                '6':'up',
-                '7':'NO'
-               }
-
-cnt = 0
-
-_flagdisplay = False
-
-def loadmodel():
-    global model
-    if (modelfile.currentText()!='--select--'and modelfile.currentText()!=''):
-        model_info = torch.load(modelfile.currentText(),map_location='cpu')
-        # TODO: 
-        model = []
-        model.load_state_dict(model_info['state_dict'])
-        printlog('加载'+modelfile.currentText()+'模型成功!',fontcolor='blue')
-    else:
-        printlog("请加载模型!",fontcolor='red')
-
-def cleartjpg():
-    view_gesture.setPixmap(QtGui.QPixmap("gesture_icons/"+str(7)+".jpg"))
-    subWin.img_update("gesture_icons/"+str(7)+".jpg")   
-
-def Judge_gesture(a,b,c,d,e):
-    global _flagdisplay
-    if model:
-        # TODO:
-        fanhui = [] #predict.predictGesture(model,d,b,e,c,a)
-        view_gesture.setPixmap(QtGui.QPixmap("gesture_icons/"+str(fanhui)+".jpg"))
-        subWin.img_update("gesture_icons/"+str(fanhui)+".jpg")
-        QtCore.QTimer.singleShot(2000, cleartjpg)
-        _flagdisplay = True
-        printlog("输出:" + gesturedict[str(fanhui)],fontcolor='blue')
-        return gesturedict[str(fanhui)]
-
-def update_figure():
-    global img_rdi, img_rai, img_rti, img_rei, img_dti
-    global idx,cnt
-
-    img_rti.setImage(RTIData.get().sum(2)[0:1024:16,:], levels=[0, 1e4])
-    # img_rdi.setImage(RDIData.get()[:, :, 0].T, levels=[30, 50])
-    img_rdi.setImage(RDIData.get().sum(0)[:, :, 0].T,levels=[2e4, 4e5])
-    # img_rei.setImage(REIData.get().T,levels=[0, 3])
-    img_rei.setImage(REIData.get()[4:12,:,:].sum(0).T,levels=[0, 8])
-    img_dti.setImage(DTIData.get(),levels=[0, 1000])
-    # img_rai.setImage(RAIData.get().sum(0).T, levels=[1.2e3, 4e6])
-    # img_rai.setImage(RAIData.get()[0,:,:].T, levels=[8e3, 2e4])
-    # img_rai.setImage(RAIData.get(),levels=[0, 3])
-    img_rai.setImage(RAIData.get()[4:12,:,:].sum(0),levels=[0, 8])
+from app_config import DEFAULT_CONFIG
+from colormap_utils import pg_get_cmap
+from data_pipeline import CaptureBuffer, DataProcessor, UdpListener
+from hardware_interfaces import (
+    Dca1000Controller,
+    RadarCliClient,
+    select_preferred_cli_port,
+)
+from radar_profile import parse_radar_profile_shape
+from radar_tlv import Iwr6843TlvParser
+from runtime_state import RuntimeState
+from signal_processor import RadarSignalProcessor
+from generated_ui import GestureOverlayWindow, Ui_MainWindow
 
 
-    if gl.get_value('usr_gesture'):
-        RT_feature = RTIData.get().sum(2)[0:1024:16,:]
-        DT_feature = DTIData.get()
-        RDT_feature = RDIData.get()[:, :, :, 0]
-        ART_feature = RAIData.get()
-        ERT_feature = REIData.get()
-
-        # if Recognizebtn.isChecked():
-        if Recognizebtn.isChecked():
-            # 识别
-            
-            time_start = time.time()  # 记录开始时间
-            result = Judge_gesture(RT_feature,DT_feature,RDT_feature,
-                                            ART_feature,ERT_feature)
-            time_end = time.time()  # 记录结束时间
-            time_sum = time_end - time_start  # 计算的时间差为程序的执行时间，单位为秒/s
-            printlog('识别时间:'+str(time_sum)+'s, '+'识别结果:'+result,fontcolor='blue')
+GESTURE_NAMES = {
+    0: "backward",
+    1: "dbclick",
+    2: "down",
+    3: "front",
+    4: "Left",
+    5: "Right",
+    6: "up",
+    7: "NO",
+}
 
 
-        elif CaptureDatabtn.isChecked() and datasetsencefile != '':
-            idx=idx+1
-            # 收集
-            np.save(datasetsencefile+'/RT_feature_'+str(idx).zfill(5)+'.npy',RT_feature)
-            np.save(datasetsencefile+'/DT_feature_'+str(idx).zfill(5)+'.npy',DT_feature)
-            np.save(datasetsencefile+'/RDT_feature_'+str(idx).zfill(5)+'.npy',RDT_feature)
-            np.save(datasetsencefile+'/ART_feature_'+str(idx).zfill(5)+'.npy',ART_feature)
-            np.save(datasetsencefile+'/ERT_feature_'+str(idx).zfill(5)+'.npy',ERT_feature)
-            printlog('采集到特征:'+datasetfilebox.currentText()+'-'+str(idx).zfill(5),fontcolor='blue')
-        
-        gl.set_value('usr_gesture', False)
+class RadarStreamApplication:
+    """Compose hardware, processing, runtime state and PyQt widgets."""
 
-    QtCore.QTimer.singleShot(1, update_figure)
+    def __init__(
+        self,
+        config=DEFAULT_CONFIG,
+        model_factory=None,
+        gesture_predictor=None,
+    ):
+        self.base_config = config
+        self.config = config
+        self.runtime_state = RuntimeState()
+        self.model_factory = model_factory
+        self.gesture_predictor = gesture_predictor
+        self.model = None
 
+        self.feature_queue = Queue(maxsize=config.feature_queue_size)
+        self.signal_processor = RadarSignalProcessor(config, self.runtime_state)
+        self.capture_buffer = None
+        self.dca1000 = None
+        self.collector = None
+        self.processor = None
+        self.radar_ctrl = None
+        self.latest_features = None
 
-def printlog(string,fontcolor):
-    logtxt.moveCursor(QtGui.QTextCursor.End)
-    gettime = time.strftime("%H:%M:%S", time.localtime())
-    logtxt.append("<font color="+fontcolor+">"+str(gettime)+"-->"+string+"</font>")
+        self.cli_port_name = ""
+        self.dataset_scene_dir = None
+        self.capture_index = 0
 
-def getradarparameters():
-    if radarparameters.currentIndex() > -1 and radarparameters.currentText() != '--select--':
-        radarparameters.setToolTip(radarparameters.currentText())
-        configParameters = readpoint.IWR6843AOP_TLV()._initialize(config_file = radarparameters.currentText())
-        rangeResolutionlabel.setText(str(configParameters["rangeResolutionMeters"])+'cm')
-        dopplerResolutionlabel.setText(str(configParameters["dopplerResolutionMps"])+'m/s')
-        maxRangelabel.setText(str(configParameters["maxRange"])+'m')
-        maxVelocitylabel.setText(str(configParameters["maxVelocity"])+'m/s')
+        self.qt_app = None
+        self.main_window = None
+        self.ui = None
+        self.sub_window = None
+        self.images = {}
+        self.feature_views = {}
 
-def openradar(config,com):
-    global radar_ctrl
-    radar_ctrl = SerialConfig(name='ConnectRadar', CLIPort=com, BaudRate=115200)
-    radar_ctrl.StopRadar()
-    radar_ctrl.SendConfig(config)
-    processor.start()
-    processor.join(timeout=1)
-    update_figure()
+    def run(self):
+        exit_code = 1
+        try:
+            self._build_ui()
+            exit_code = self.qt_app.exec_()
+        finally:
+            self.shutdown()
+        return exit_code
 
-def updatacomstatus(cbox):
-    port_list = list(list_ports.comports())
-    cbox.clear()
-    for i in range(len(port_list)):
-        cbox.addItem(str(port_list[i][0]))
+    def _ensure_capture_backend(self):
+        """Connect DCA1000 and create capture threads on first hardware use."""
 
-def setserialport(cbox, com):
-    global CLIport_name
-    global Dataport_name
-    if cbox.currentIndex() > -1:
-        port = cbox.currentText()
-        if com == "CLI":
-            CLIport_name = port
-   
+        if self.dca1000 is not None:
+            return
+
+        capture_buffer = None
+        dca1000 = None
+        collector = None
+        try:
+            capture_buffer = CaptureBuffer(
+                self.config.radar.raw_values_per_frame,
+                self.config.paths.capture_library,
+            )
+            dca1000 = Dca1000Controller(
+                "Dca1000Controller", settings=self.config.network
+            )
+            collector = UdpListener("Listener", capture_buffer)
+            processor = DataProcessor(
+                "Processor",
+                capture_buffer,
+                self.signal_processor,
+                self.feature_queue,
+                self.config.radar,
+            )
+            collector.start()
+        except Exception:
+            if dca1000 is not None:
+                try:
+                    dca1000.close()
+                except Exception:
+                    pass
+            if collector is not None and collector.ident is not None:
+                collector.stop()
+                collector.join(timeout=1)
+            raise
+
+        # Commit only after every initialization step succeeds. A failed
+        # connection therefore leaves the application in a retryable state.
+        self.capture_buffer = capture_buffer
+        self.dca1000 = dca1000
+        self.collector = collector
+        self.processor = processor
+
+    def _build_ui(self):
+        self.qt_app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+        self.main_window = QtWidgets.QMainWindow()
+        self.ui = Ui_MainWindow(self.config, self.runtime_state)
+        self.ui.setupUi(self.main_window)
+        self.sub_window = GestureOverlayWindow(
+            self.main_window, self.config.paths.gesture_icon_dir
+        )
+
+        self._configure_feature_views()
+        self._connect_signals()
+        self.update_com_ports()
+
+        self.refresh_timer = QtCore.QTimer(self.main_window)
+        self.refresh_timer.timeout.connect(self.update_figure)
+        self.refresh_timer.start(self.config.ui_refresh_milliseconds)
+
+        self.gesture_interval_timer = QtCore.QTimer(self.main_window)
+        self.gesture_interval_timer.timeout.connect(
+            self.runtime_state.open_gesture_interval
+        )
+        self.gesture_interval_timer.start(
+            self.config.gesture_interval_milliseconds
+        )
+        self.runtime_state.open_gesture_interval()
+        self.main_window.show()
+
+    def _configure_feature_views(self):
+        view_names = {
+            "rdi": "graphicsView_6",
+            "rai": "graphicsView_4",
+            "rti": "graphicsView",
+            "dti": "graphicsView_2",
+            "rei": "graphicsView_3",
+        }
+        color_map = pg_get_cmap("customize")
+        lookup_table = color_map.getLookupTable(0.0, 1.0, 256)
+
+        # The generated UI used fixed 255 x 255 panels. Make all six feature
+        # cells participate in the grid layout so they tile the available
+        # window space instead of leaving unused margins.
+        feature_widgets = [
+            getattr(self.ui, widget_name) for widget_name in view_names.values()
+        ] + [self.ui.graphicsView_5]
+        for widget in feature_widgets:
+            widget.setSizePolicy(
+                QtWidgets.QSizePolicy.Expanding,
+                QtWidgets.QSizePolicy.Expanding,
+            )
+            widget.setMinimumSize(QtCore.QSize(160, 160))
+            widget.setMaximumSize(QtCore.QSize(16777215, 16777215))
+        for column in range(3):
+            self.ui.gridLayout.setColumnStretch(column, 1)
+
+        for feature_name, widget_name in view_names.items():
+            widget = getattr(self.ui, widget_name)
+            # GraphicsLayoutWidget already owns a GraphicsLayout. Adding a
+            # ViewBox to that layout and then setting the same ViewBox as the
+            # central widget makes two layout systems fight over its geometry,
+            # shrinking it to a strip in the top-left corner. Replace the
+            # central item once with a standalone ViewBox instead.
+            view = pg.ViewBox(enableMenu=False)
+            view.setDefaultPadding(0.0)
+            view.setAspectLocked(False)
+            view.setMouseEnabled(x=False, y=False)
+            widget.setCentralItem(view)
+            image = pg.ImageItem(border=None)
+            image.setLookupTable(lookup_table)
+            view.addItem(image)
+            view.enableAutoRange(x=True, y=True)
+            self.feature_views[feature_name] = view
+            self.images[feature_name] = image
+
+        neutral_icon = str(self.config.paths.gesture_icon(7))
+        self.ui.graphicsView_5.setAlignment(QtCore.Qt.AlignCenter)
+        self.ui.graphicsView_5.setPixmap(QtGui.QPixmap(neutral_icon))
+
+    def _connect_signals(self):
+        self.ui.comboBox_8.arrowClicked.connect(self.update_com_ports)
+        self.ui.comboBox_8.currentIndexChanged.connect(self.set_serial_port)
+        self.ui.comboBox.currentIndexChanged.connect(self.set_color)
+        self.ui.comboBox_2.currentIndexChanged.connect(self.load_model)
+        self.ui.comboBox_7.currentIndexChanged.connect(self.show_radar_parameters)
+        self.ui.comboBox_3.currentIndexChanged.connect(self.select_dataset_scene)
+        self.ui.lineEdit_6.editingFinished.connect(self.select_dataset_scene)
+        self.ui.pushButton_11.clicked.connect(self.send_radar_config)
+        self.ui.actionload.triggered.connect(self.show_sub_window)
+        self.ui.pushButton_12.clicked.connect(self.qt_app.exit)
+
+    def update_figure(self):
+        try:
+            while True:
+                self.latest_features = self.feature_queue.get_nowait()
+        except Empty:
+            pass
+
+        if self.latest_features is None:
+            return
+
+        features = self.latest_features
+        dsp_config = self.config.dsp
+        history_slice = slice(
+            dsp_config.angle_history_start, dsp_config.angle_history_stop
+        )
+        rti_feature = features.rti.sum(2)[::dsp_config.rti_display_stride, :]
+        self.images["rti"].setImage(rti_feature, levels=self.config.rti_levels)
+        self.images["rdi"].setImage(
+            features.rdi.sum(0)[:, :, 0].T, levels=self.config.rdi_levels
+        )
+        self.images["rei"].setImage(
+            features.rei[history_slice].sum(0).T,
+            levels=self.config.angle_levels,
+        )
+        self.images["dti"].setImage(features.dti, levels=self.config.dti_levels)
+        self.images["rai"].setImage(
+            features.rai[history_slice].sum(0),
+            levels=self.config.angle_levels,
+        )
+
+        if self.runtime_state.consume_gesture():
+            self._handle_gesture(features, rti_feature)
+
+    def _handle_gesture(self, features, rti_feature):
+        feature_views = (
+            rti_feature,
+            features.dti,
+            features.rdi[:, :, :, 0],
+            features.rai,
+            features.rei,
+        )
+        if self.ui.pushButton_15.isChecked():
+            start_time = time.time()
+            result = self.judge_gesture(*feature_views)
+            if result is not None:
+                elapsed = time.time() - start_time
+                self.print_log(
+                    "识别时间:{:.4f}s, 识别结果:{}".format(elapsed, result),
+                    "blue",
+                )
+        elif self.ui.pushButton.isChecked() and self.dataset_scene_dir is not None:
+            self._save_feature_views(feature_views)
+
+    def load_model(self):
+        model_path = self.ui.comboBox_2.currentText()
+        if model_path in ("", "--select--"):
+            self.model = None
+            return
+        if self.model_factory is None:
+            self.print_log("尚未配置 model_factory，无法实例化模型", "red")
+            return
+
+        import torch
+
+        checkpoint = torch.load(model_path, map_location="cpu")
+        self.model = self.model_factory()
+        self.model.load_state_dict(checkpoint["state_dict"])
+        self.model.eval()
+        self.print_log("加载{}模型成功!".format(model_path), "blue")
+
+    def judge_gesture(self, rti, dti, rdi, rai, rei):
+        if self.model is None or self.gesture_predictor is None:
+            self.print_log("模型或 gesture_predictor 尚未配置", "red")
+            return None
+
+        gesture_id = int(
+            self.gesture_predictor(self.model, rai, dti, rei, rdi, rti)
+        )
+        gesture_name = GESTURE_NAMES.get(gesture_id, "unknown")
+        icon_path = str(self.config.paths.gesture_icon(gesture_id))
+        self.ui.graphicsView_5.setPixmap(QtGui.QPixmap(icon_path))
+        self.sub_window.img_update(icon_path)
+        QtCore.QTimer.singleShot(
+            self.config.gesture_interval_milliseconds, self.clear_gesture_icon
+        )
+        self.print_log("输出:{}".format(gesture_name), "blue")
+        return gesture_name
+
+    def clear_gesture_icon(self):
+        icon_path = str(self.config.paths.gesture_icon(7))
+        self.ui.graphicsView_5.setPixmap(QtGui.QPixmap(icon_path))
+        self.sub_window.img_update(icon_path)
+
+    def _save_feature_views(self, feature_views):
+        self.capture_index += 1
+        names = ("RT", "DT", "RDT", "ART", "ERT")
+        for name, feature in zip(names, feature_views):
+            file_name = "{}_feature_{:05d}.npy".format(name, self.capture_index)
+            np.save(str(self.dataset_scene_dir / file_name), feature)
+        self.print_log(
+            "采集到特征:{}-{:05d}".format(
+                self.ui.comboBox_3.currentText(), self.capture_index
+            ),
+            "blue",
+        )
+
+    def select_dataset_scene(self):
+        subject = self.ui.lineEdit_6.text().strip()
+        scene = self.ui.comboBox_3.currentText().strip()
+        if not subject or not scene:
+            self.dataset_scene_dir = None
+            return
+
+        self.dataset_scene_dir = self.config.paths.dataset_dir / subject / scene
+        self.dataset_scene_dir.mkdir(parents=True, exist_ok=True)
+        self.capture_index = len(list(self.dataset_scene_dir.glob("DT_feature_*.npy")))
+
+    def show_radar_parameters(self):
+        config_path = self.ui.comboBox_7.currentText()
+        if self.ui.comboBox_7.currentIndex() < 0 or config_path == "--select--":
+            return
+        self.ui.comboBox_7.setToolTip(config_path)
+        parameters = Iwr6843TlvParser().parse_config(config_path)
+        self.ui.label_14.setText(
+            "{}m".format(parameters["rangeResolutionMeters"])
+        )
+        self.ui.label_35.setText(
+            "{}m/s".format(parameters["dopplerResolutionMps"])
+        )
+        self.ui.label_16.setText("{}m".format(parameters["maxRange"]))
+        self.ui.label_37.setText("{}m/s".format(parameters["maxVelocity"]))
+
+    def update_com_ports(self):
+        ports = list(list_ports.comports())
+        preferred = select_preferred_cli_port(ports)
+        previous = self.cli_port_name
+
+        self.ui.comboBox_8.blockSignals(True)
+        try:
+            self.ui.comboBox_8.clear()
+            for port in ports:
+                self.ui.comboBox_8.addItem(port.device)
+                index = self.ui.comboBox_8.count() - 1
+                self.ui.comboBox_8.setItemData(
+                    index, port.description, QtCore.Qt.ToolTipRole
+                )
+
+            available_devices = [port.device for port in ports]
+            selected_device = previous
+            if selected_device not in available_devices:
+                selected_device = preferred.device if preferred is not None else ""
+            selected_index = self.ui.comboBox_8.findText(selected_device)
+            self.ui.comboBox_8.setCurrentIndex(selected_index)
+            self.cli_port_name = selected_device if selected_index >= 0 else ""
+        finally:
+            self.ui.comboBox_8.blockSignals(False)
+
+    def set_serial_port(self):
+        if self.ui.comboBox_8.currentIndex() >= 0:
+            self.cli_port_name = self.ui.comboBox_8.currentText()
+
+    def send_radar_config(self):
+        config_path = self.ui.comboBox_7.currentText()
+        if not self.cli_port_name or config_path == "--select--":
+            self.print_log("发送失败", "red")
+            return
+        try:
+            profile_shape = parse_radar_profile_shape(config_path)
+            self._apply_radar_profile(profile_shape)
+            self.open_radar(config_path, self.cli_port_name)
+        except Exception as error:
+            self.print_log("发送失败: {}".format(error), "red")
+            return
+        self.print_log(
+            "发送成功；已按配置使用 ADC/chirp/TX/RX={}，帧长度={} int16".format(
+                profile_shape.as_tuple(), self.config.radar.raw_values_per_frame
+            ),
+            "green",
+        )
+
+    def _apply_radar_profile(self, profile_shape):
+        runtime_config = self.base_config.with_radar_shape(
+            *profile_shape.as_tuple()
+        )
+        if runtime_config.radar == self.config.radar:
+            return
+
+        feature_queue = Queue(maxsize=runtime_config.feature_queue_size)
+        signal_processor = RadarSignalProcessor(
+            runtime_config, self.runtime_state
+        )
+
+        # Native capture owns a frame-sized double buffer. Stop the previous
+        # capture process before replacing it with the selected cfg's exact
+        # frame length.
+        self._stop_hardware()
+        self.config = runtime_config
+        if self.ui is not None:
+            self.ui.config = runtime_config
+        self.feature_queue = feature_queue
+        self.signal_processor = signal_processor
+        self.latest_features = None
+
+    def open_radar(self, config_path, com_port):
+        self._ensure_capture_backend()
+
+        if self.radar_ctrl is not None:
+            try:
+                self.radar_ctrl.disconnect()
+            finally:
+                self.radar_ctrl = None
+
+        radar_ctrl = RadarCliClient(
+            name="ConnectRadar", cli_port=com_port, settings=self.config.serial
+        )
+        try:
+            radar_ctrl.stop_radar()
+            radar_ctrl.send_config(config_path)
+        except Exception:
+            try:
+                radar_ctrl.disconnect()
+            except Exception:
+                # disconnect() always closes the serial port in its finally
+                # block. Keep the original configuration error for the UI.
+                pass
+            raise
+        self.radar_ctrl = radar_ctrl
+
+        if self.processor.ident is None:
+            self.processor.start()
+        elif not self.processor.is_alive():
+            self.processor = DataProcessor(
+                "Processor",
+                self.capture_buffer,
+                self.signal_processor,
+                self.feature_queue,
+                self.config.radar,
+            )
+            self.processor.start()
+
+    def set_color(self):
+        color_name = self.ui.comboBox.currentText()
+        if color_name in ("", "--select--"):
+            return
+        if color_name == "customize":
+            color_map = pg_get_cmap(color_name)
         else:
-            Dataport_name = port
-    
-def sendconfigfunc():
-    global CLIport_name
-    global Dataport_name
-    if len(CLIport_name) != 0  and radarparameters.currentText() != '--select--':
-        openradar(radarparameters.currentText(),CLIport_name)
-        printlog(string = '发送成功', fontcolor='green')
-    else:
-        printlog(string = '发送失败', fontcolor='red')
+            import matplotlib.pyplot as plt
+
+            color_map = pg_get_cmap(plt.cm.get_cmap(color_name))
+        lookup_table = color_map.getLookupTable(0.0, 1.0, 256)
+        for image in self.images.values():
+            image.setLookupTable(lookup_table)
+
+    def show_sub_window(self):
+        self.sub_window.show()
+        self.main_window.hide()
+
+    def print_log(self, message, color="green"):
+        self.ui.textEdit.moveCursor(QtGui.QTextCursor.End)
+        timestamp = time.strftime("%H:%M:%S", time.localtime())
+        self.ui.textEdit.append(
+            '<font color="{}">{}-->{}</font>'.format(
+                html.escape(color), timestamp, html.escape(str(message))
+            )
+        )
+
+    def shutdown(self):
+        self._stop_hardware()
+
+    def _stop_hardware(self):
+        if self.radar_ctrl is not None:
+            try:
+                if self.radar_ctrl.is_open:
+                    self.radar_ctrl.disconnect()
+            except Exception:
+                pass
+            finally:
+                self.radar_ctrl = None
+        if self.processor is not None:
+            self.processor.stop()
+        if self.dca1000 is not None:
+            try:
+                self.dca1000.close()
+            except Exception:
+                pass
+            finally:
+                self.dca1000 = None
+        if self.processor is not None and self.processor.ident is not None:
+            self.processor.join(timeout=1)
+        self.processor = None
+        if self.collector is not None:
+            if self.collector.ident is not None:
+                self.collector.stop()
+                self.collector.join(timeout=1)
+        self.collector = None
+        self.capture_buffer = None
 
 
-def setintervaltime():
-    gl.set_value('timer_2s', True)
-    QtCore.QTimer.singleShot(2000, setintervaltime)
-
-# cnt 用来计数 200ms*cnt，代表显示多长时间
-cnt = 0
-def setdisplaygestureicontime():
-    global _flagdisplay, cnt
-    if _flagdisplay==True:
-        cnt = cnt + 1
-        if cnt>4:
-            cnt = 0
-            view_gesture.setPixmap(QtGui.QPixmap("gesture_icons/"+str(7)+".jpg"))
-            subWin.img_update("gesture_icons/"+str(7)+".jpg")
-            _flagdisplay=False
-    QtCore.QTimer.singleShot(200, setdisplaygestureicontime)
-
-def setcolor():
-    if(color_.currentText()!='--select--' and color_.currentText()!=''):
-        if color_.currentText() == 'customize':
-            pgColormap = pg_get_cmap(color_.currentText())
-        else:
-            cmap=plt.cm.get_cmap(color_.currentText())
-            pgColormap = pg_get_cmap(cmap)
-        lookup_table = pgColormap.getLookupTable(0.0, 1.0, 256)
-        img_rdi.setLookupTable(lookup_table)
-        img_rai.setLookupTable(lookup_table)
-        img_rti.setLookupTable(lookup_table)
-        img_dti.setLookupTable(lookup_table)
-        img_rei.setLookupTable(lookup_table)
-
-def get_filelist(dir,Filelist):
-    newDir=dir
-    #注意看dir是文件名还是路径＋文件名！！！！！！！！！！！！！！
-    if os.path.isfile(dir):
-        dir_ = os.path.basename(dir)  
-        if (dir_[:2] == 'DT') and (dir_[-4:] == '.npy'):
-            Filelist[0].append(dir)
-        elif (dir_[:2] == 'RT') and (dir_[-4:] == '.npy'):
-            Filelist[1].append(dir)
-        elif (dir_[:3] == 'RDT') and (dir_[-4:] == '.npy'):
-            Filelist[2].append(dir)
-        elif (dir_[:3] == 'ART') and (dir_[-4:] == '.npy'):
-            Filelist[3].append(dir)    
-        elif (dir_[:3] == 'ERT') and (dir_[-4:] == '.npy'):
-            Filelist[4].append(dir)  
-    elif os.path.isdir(dir):
-        for s in os.listdir(dir):
-            newDir=os.path.join(dir,s)
-            get_filelist(newDir,Filelist)
-    return Filelist
-
-def savedatasetsencefile():
-    global datasetsencefile,start_captureidx,idx
-    datasetsencefile = datasetfile+'/'+ whodatafile.text()+'/'+datasetfilebox.currentText()
-    if not os.path.exists(datasetsencefile):  #判断是否存在文件夹如果不存在则创建为文件夹
-        os.makedirs(datasetsencefile)
-
-    featurelist = get_filelist(datasetsencefile, [[] for i in range(5)])
-    start_captureidx = len(featurelist[0])
-    idx = start_captureidx
+def main():
+    return RadarStreamApplication().run()
 
 
-def show_sub():
-    subWin.show()
-    MainWindow.hide()
-
-
-
-def application():
-    global color_,radarparameters,maxVelocitylabel,maxRangelabel,dopplerResolutionlabel,rangeResolutionlabel,logtxt
-    global Recognizebtn,CaptureDatabtn,view_gesture,modelfile,datasetfilebox,whodatafile
-    global img_rdi, img_rai, img_rti, img_rei, img_dti,ui
-    global subWin,MainWindow
-    app = QtWidgets.QApplication(sys.argv)
-    MainWindow = QtWidgets.QMainWindow()
-    MainWindow.show()
-    ui = Ui_MainWindow()
-
-    ui.setupUi(MainWindow)
-    subWin = Qt_pet(MainWindow)
-    
-    # 改了D:\Applications\anaconda3\Lib\site-packages\pyqtgraph\graphicsItems\ViewBox
-    # 里的ViewBox.py第919行padding = self.suggestPadding(ax)改成padding = 0
-    view_rdi = ui.graphicsView_6.addViewBox()
-    ui.graphicsView_6.setCentralWidget(view_rdi)#去边界
-    view_rai = ui.graphicsView_4.addViewBox()
-    ui.graphicsView_4.setCentralWidget(view_rai)#去边界
-    view_rti = ui.graphicsView.addViewBox()
-    ui.graphicsView.setCentralWidget(view_rti)#去边界
-    view_dti = ui.graphicsView_2.addViewBox()
-    ui.graphicsView_2.setCentralWidget(view_dti)#去边界
-    view_rei = ui.graphicsView_3.addViewBox()
-    ui.graphicsView_3.setCentralWidget(view_rei)#去边界
-
-    view_gesture = ui.graphicsView_5
-    view_gesture.setPixmap(QtGui.QPixmap("gesture_icons/7.jpg"))
-
-    sendcfgbtn = ui.pushButton_11
-    exitbtn = ui.pushButton_12
-    Recognizebtn = ui.pushButton_15
-    CaptureDatabtn = ui.pushButton
-
-    color_ = ui.comboBox
-    modelfile = ui.comboBox_2
-    datasetfilebox = ui.comboBox_3
-    radarparameters = ui.comboBox_7
-    Cliportbox = ui.comboBox_8
-
-    logtxt = ui.textEdit
-    whodatafile = ui.lineEdit_6
-    changepage = ui.actionload
-    
-
-    rangeResolutionlabel = ui.label_14
-    dopplerResolutionlabel = ui.label_35
-    maxRangelabel = ui.label_16
-    maxVelocitylabel = ui.label_37
-
-    # ---------------------------------------------------
-    # lock the aspect ratio so pixels are always square
-    # view_rai.setAspectLocked(True)
-    # view_rti.setAspectLocked(True)
-    img_rdi = pg.ImageItem(border=None)
-    img_rai = pg.ImageItem(border=None)
-    img_rti = pg.ImageItem(border=None)
-    img_dti = pg.ImageItem(border=None)
-    img_rei = pg.ImageItem(border=None)
-
-    # Colormap
-    pgColormap = pg_get_cmap('customize')
-    lookup_table = pgColormap.getLookupTable(0.0, 1.0, 256)
-    img_rdi.setLookupTable(lookup_table)
-    img_rai.setLookupTable(lookup_table)
-    img_rti.setLookupTable(lookup_table)
-    img_dti.setLookupTable(lookup_table)
-    img_rei.setLookupTable(lookup_table)
-
-    view_rdi.addItem(img_rdi)
-    view_rai.addItem(img_rai)
-    view_rti.addItem(img_rti)
-    view_dti.addItem(img_dti)
-    view_rei.addItem(img_rei)
-    
-
-    Cliportbox.arrowClicked.connect(lambda:updatacomstatus(Cliportbox)) 
-    Cliportbox.currentIndexChanged.connect(lambda:setserialport(Cliportbox, com = 'CLI'))
-    color_.currentIndexChanged.connect(setcolor)
-    modelfile.currentIndexChanged.connect(loadmodel)
-    radarparameters.currentIndexChanged.connect(getradarparameters)
-    datasetfilebox.currentIndexChanged.connect(savedatasetsencefile)
-    whodatafile.editingFinished.connect(savedatasetsencefile)
-    sendcfgbtn.clicked.connect(sendconfigfunc)
-    Recognizebtn.clicked.connect(setintervaltime)
-    # Recognizebtn.clicked.connect(setdisplaygestureicontime)
-    CaptureDatabtn.clicked.connect(setintervaltime)
-    changepage.triggered.connect(show_sub)
-    # 2022/2/24 添加小型化控件 不能正常退出了
-    exitbtn.clicked.connect(app.instance().exit)
-    
-    app.instance().exec_()
-
-    try:
-        if radar_ctrl.CLIPort:
-            if radar_ctrl.CLIPort.isOpen():
-                radar_ctrl.StopRadar()
-    except:
-        pass
-
-
-if __name__ == '__main__':
-    # Queue for access data
-    BinData = Queue() # 原始数据队列
-
-    # 时间信息
-    RTIData = Queue() # 距离时间队列
-    DTIData = Queue() # 多普勒时间队列
-
-    # 连续过程信息
-    RDIData = Queue() # 距离多普勒队列
-    RAIData = Queue() # 距离方位角队列
-    REIData = Queue() # 方位角俯仰角队列
-
-    # Radar config parameters
-    NUM_TX = 3
-    NUM_RX = 4
-    NUM_CHIRPS = 64
-    NUM_ADC_SAMPLES = 64
-
-    radar_config = [NUM_ADC_SAMPLES, NUM_CHIRPS, NUM_TX, NUM_RX]
-    frame_length = NUM_ADC_SAMPLES * NUM_CHIRPS * NUM_TX * NUM_RX * 2
-
-    # config DCA1000 to receive bin data
-    dca1000_cfg = DCA1000Config('DCA1000Config',config_address = ('192.168.33.30', 4096),
-                                                FPGA_address_cfg=('192.168.33.180', 4096))
-
-    collector = UdpListener('Listener', BinData, frame_length)
-    processor = DataProcessor('Processor', radar_config, BinData, RTIData, DTIData, 
-                                             RDIData, RAIData, REIData)
-    collector.start()
-
-    application()
-
-    dca1000_cfg.DCA1000_close()
-
-    collector.join(timeout=1)
-    
-    print("Program close")
-    sys.exit()
+if __name__ == "__main__":
+    sys.exit(main())

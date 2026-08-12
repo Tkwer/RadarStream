@@ -12,7 +12,6 @@
 
 import numpy as np
 from . import utils
-from . import ZoomFFT
 
 def range_resolution(num_adc_samples, dig_out_sample_rate=2500, freq_slope_const=60.012):
     """ Calculate the range resolution for the given radar configuration
@@ -36,7 +35,7 @@ def range_resolution(num_adc_samples, dig_out_sample_rate=2500, freq_slope_const
     return range_resolution, band_width
 
 
-def range_processing(adc_data, window_type_1d=None, axis=-1):
+def range_processing(adc_data, window_type_1d=None, axis=-1, fft_size=None):
     """Perform 1D FFT on complex-format ADC data.
 
     Perform optional windowing and 1D FFT on the ADC data.
@@ -59,7 +58,7 @@ def range_processing(adc_data, window_type_1d=None, axis=-1):
         fft1d_in = adc_data
 
     # Note: np.fft.fft is a 1D operation, using higher dimension input defaults to slicing last axis for transformation
-    radar_cube = np.fft.fft(fft1d_in, n = 64,axis=axis)
+    radar_cube = np.fft.fft(fft1d_in, n=fft_size, axis=axis)
     # radar_cube = np.fft.fft(fft1d_in, axis=axis)
 
     return radar_cube
@@ -82,6 +81,9 @@ def zoom_range_processing(adc_data, low_freq, high_freq, fs, d, resample_number)
     Returns:
         zoom_fft_spectrum (ndarray): (num_chirps_per_frame, num_rx_antennas, resample_number).
     """
+    # ZoomFFT is optional and requires SciPy; load it only for this code path.
+    from .zoom_fft import ZoomFFT
+
     # adc_data shape: [num_chirps_per_frame, num_rx_antennas, num_range_bins]
     num_chirps_per_frame = adc_data.shape[0]
     num_rx_antennas = adc_data.shape[1]
@@ -91,7 +93,7 @@ def zoom_range_processing(adc_data, low_freq, high_freq, fs, d, resample_number)
 
     for i in range(num_chirps_per_frame):
         for j in range(num_rx_antennas):
-            zoom_fft_inst = ZoomFFT.ZoomFFT(low_freq, high_freq, fs, adc_data[i, j, :])
+            zoom_fft_inst = ZoomFFT(low_freq, high_freq, fs, adc_data[i, j, :])
             zoom_fft_inst.compute_fft()
             zoom_fft_spectrum[i, j, :] = zoom_fft_inst.compute_zoomfft()
 

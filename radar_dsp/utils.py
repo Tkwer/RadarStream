@@ -52,6 +52,7 @@ def windowing(input, window_type, axis=0):
     # 输入为(num_chirps_per_frame, num_adc_samples, num_rx_antennas)
     # 要转(num_chirps_per_frame, num_rx_antennas, num_adc_samples)
 
+    axis = np.core.numeric.normalize_axis_index(axis, input.ndim)
     window_length = input.shape[axis]
     if window_type == Window.BARTLETT:
         window = np.bartlett(window_length)
@@ -63,6 +64,9 @@ def windowing(input, window_type, axis=0):
         window = np.hanning(window_length)
     else:
         raise ValueError("The specified window is not supported!!!")
-    output = input * window
+    # Reshape the 1-D coefficients so they broadcast along the requested
+    # dimension, including when that dimension is not the last one.
+    window_shape = [1] * input.ndim
+    window_shape[axis] = window_length
+    output = input * window.reshape(window_shape)
     return output
-

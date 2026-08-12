@@ -129,7 +129,9 @@ def doppler_processing(radar_cube,
     # original code.
 
     # Log_2 Absolute Value
-    fft2d_log_abs = np.log2(np.abs(fft2d_out))
+    fft2d_log_abs = np.log2(
+        np.maximum(np.abs(fft2d_out), np.finfo(float).tiny)
+    )
 
     # Accumulate
     if accumulate:

@@ -1,58 +1,47 @@
-import serial
-import numpy as np
-import time
 import struct
 
-DEBUG=False
+import numpy as np
+
 MAGIC_WORD_ARRAY = np.array([2, 1, 4, 3, 6, 5, 8, 7])
 MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 MSG_AZIMUT_STATIC_HEAT_MAP = 8
 
 
-class IWR6843AOP_TLV:
-    def __init__(self, sdk_version=3.4,  cli_baud=115200,data_baud=921600, num_rx=4, num_tx=3,
-                 verbose=False, connect=True, mode=0,cli_loc='COM9',data_loc='COM10',config_file=""):
-        super(IWR6843AOP_TLV, self).__init__()
-        self.connected = False
+class Iwr6843TlvParser:
+    """Parse TI IWR6843 CLI profiles and TLV packets."""
+
+    def __init__(self, sdk_version=3.4, num_rx=4, num_tx=3, verbose=False):
         self.verbose = verbose
-        self.mode = mode
-        if connect:
-            # self.cli_port = serial.Serial(cli_loc, cli_baud)
-            # self.data_port = serial.Serial(data_loc, data_baud)
-            self.connected = True
         self.sdk_version = sdk_version
         self.num_rx_ant = num_rx
         self.num_tx_ant = num_tx
         self.num_virtual_ant = num_rx * num_tx
-        self.config_file = config_file
-        # if mode == 0:
-        #     self._initialize(self.config_file)
-    
-    def _configure_radar(self, config):
-        for i in config:
-            self.cli_port.write((i + '\n').encode())
-            # print(i)
-            time.sleep(0.01)
 
-    def _initialize(self, config_file):
-        config = [line.rstrip('\r\n') for line in open(config_file)]
-        if self.connected:
-            pass
-            # self._configure_radar(config)
-
+    def parse_config(self, config_file):
+        with open(config_file, encoding="utf-8") as file_handle:
+            config = [line.rstrip('\r\n') for line in file_handle]
         self.config_params = {}  # Initialize an empty dictionary to store the configuration parameters
 
+        chirp_tx_masks = {}
         for i in config:
 
             # Split the line
-            split_words = i.split(" ")
+            split_words = i.split()
+            if not split_words or split_words[0].startswith(("%", "#")):
+                continue
 
-            # Hard code the number of antennas, change if other configuration is used
-            num_rx_ant = 4
-            num_tx_ant = 3
+            if "channelCfg" in split_words[0]:
+                num_rx_ant = bin(int(split_words[1])).count("1")
+
+            elif "chirpCfg" in split_words[0]:
+                chirp_start = int(split_words[1])
+                chirp_end = int(split_words[2])
+                tx_mask = int(split_words[8])
+                for chirp_index in range(chirp_start, chirp_end + 1):
+                    chirp_tx_masks[chirp_index] = tx_mask
 
             # Get the information about the profile configuration
-            if "profileCfg" in split_words[0]:
+            elif "profileCfg" in split_words[0]:
                 start_freq = int(split_words[2])
                 idle_time = int(split_words[3])
                 ramp_end_time = float(split_words[5])
@@ -71,8 +60,17 @@ class IWR6843AOP_TLV:
                 chirp_start_idx = int(split_words[1])
                 chirp_end_idx = int(split_words[2])
                 num_loops = int(split_words[3])
-                num_frames = int(split_words[4])
-                frame_periodicity = float(split_words[5])
+
+        num_tx_ant = len(
+            {
+                tx_bit
+                for tx_mask in chirp_tx_masks.values()
+                for tx_bit in range(tx_mask.bit_length())
+                if tx_mask & (1 << tx_bit)
+            }
+        )
+        if not num_tx_ant:
+            num_tx_ant = self.num_tx_ant
 
         # Combine the read data to obtain the configuration parameters
         num_chirps_per_frame = (chirp_end_idx - chirp_start_idx + 1) * num_loops
@@ -90,27 +88,6 @@ class IWR6843AOP_TLV:
                     4 * start_freq * 1e9 * (idle_time + ramp_end_time) * 1e-6 * num_tx_ant),2)
         return self.config_params
 
-
-    def close(self):
-        """End connection between radar and machine
-
-        Returns:
-            None
-
-        """
-        self.cli_port.write('sensorStop\n'.encode())
-        self.cli_port.close()
-        self.data_port.close()
-
-    def _read_buffer(self):
-        """
-
-        Returns:
-
-        """
-        byte_buffer = self.data_port.read(self.data_port.in_waiting)
-
-        return byte_buffer
 
     def _parse_header_data(self, byte_buffer, idx):
         """Parses the byte buffer for the header of the data
@@ -227,4 +204,3 @@ class IWR6843AOP_TLV:
             return data, idx + (items * size[form])
         except:
             return None
-

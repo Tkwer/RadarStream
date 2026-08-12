@@ -240,12 +240,14 @@ def aoa_capon(x, steering_vector, magnitude=False):
     Rxx = cov_matrix(x)
     Rxx = forward_backward_avg(Rxx)
     # 矩阵求逆
-    Rxx_inv = np.linalg.inv(Rxx)
+    Rxx_inv = np.linalg.pinv(Rxx)
     # Calculate Covariance Matrix Rxx
     # *是点乘 @是矩阵乘方法
     first = Rxx_inv @ steering_vector.T
     # reciprocal返回1/X
-    den = np.reciprocal(np.einsum('ij,ij->i', steering_vector.conj(), first.T))
+    denominator = np.einsum('ij,ij->i', steering_vector.conj(), first.T)
+    den = np.zeros_like(denominator)
+    np.divide(1, denominator, out=den, where=np.abs(denominator) > np.finfo(float).eps)
     weights = np.matmul(first, den)
 
     if magnitude:
@@ -392,16 +394,13 @@ def forward_backward_avg(Rxx):
 
     # --> Calculation
     M = np.size(Rxx, 0)  # Find number of antenna elements
-    Rxx = np.matrix(Rxx)  # Cast np.ndarray as a np.matrix
 
     # Create exchange matrix
     J = np.eye(M)  # Generates an identity matrix with row/col size M
     J = np.fliplr(J)  # Flips the identity matrix left right
-    J = np.matrix(J)  # Cast np.ndarray as a np.matrix
+    R_fb = 0.5 * (Rxx + J @ np.conjugate(Rxx) @ J)
 
-    R_fb = 0.5 * (Rxx + J * np.conjugate(Rxx) * J)
-
-    return np.array(R_fb)
+    return R_fb
 
 
 def peak_search(doa_spectrum, peak_threshold_weight=0.251188643150958):

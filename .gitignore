@@ -121,6 +121,7 @@ visualization/
 *.h5
 *.hdf5
 *.model
+model_checkpoints/
 # *.bin
 
 # Windows specific

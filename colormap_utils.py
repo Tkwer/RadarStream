@@ -33,7 +33,6 @@ itself has no dependencies on Matplotlib! Hence the weird if clauses with
 import numpy as np
 from pyqtgraph.Qt import QtCore, QtGui
 import pyqtgraph
-import matplotlib
 import collections
 
 
