@@ -9,12 +9,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+import warnings
 
 import numpy as np
-from .utils import *
+
 from . import compensation
-import warnings
+from .utils import DOPPLER_IDX_TO_SIGNED, DOPPLERIDX, RANGEIDX, windowing
+
+try:
+    from scipy.signal import find_peaks
+except ImportError:
+    def find_peaks(values, height=None):
+        """Minimal fallback for the height-only peak search used in this module."""
+        values = np.asarray(values)
+        if values.ndim != 1:
+            raise ValueError("peak search expects a one-dimensional spectrum")
+        if values.size < 3:
+            peaks = np.array([], dtype=int)
+        else:
+            local_maxima = (
+                (values[1:-1] > values[:-2])
+                & (values[1:-1] > values[2:])
+            )
+            peaks = np.flatnonzero(local_maxima) + 1
+        if height is not None:
+            peaks = peaks[values[peaks] >= height]
+        return peaks, {"peak_heights": values[peaks]}
+
 
 def azimuth_processing(radar_cube, det_obj_2d, config, window_type_2d=None):
     """Calculate the X/Y coordinates for all detected objects.
@@ -70,7 +91,7 @@ def azimuth_processing(radar_cube, det_obj_2d, config, window_type_2d=None):
     fft2d_azimuth_out = np.fft.fftshift(fft2d_azimuth_out, axes=2)
     # Filter fft2d_azimuth_out with the DopplerIdx from CFAR and PG
     # azimuth_in(numDetObj, numVirtualAntennas)
-    azimuth_in = np.zeros((num_det_obj, config.numAngleBins), dtype=np.complex_)
+    azimuth_in = np.zeros((num_det_obj, config.numAngleBins), dtype=np.complex128)
     azimuth_in[:, :config.numVirtualAntAzim] = np.array([fft2d_azimuth_out[i, :, dopplerIdx] for i, dopplerIdx in
                                                          enumerate(
                                                              det_obj_2d[:, DOPPLERIDX].astype(np.uint32))]).squeeze()
@@ -626,7 +647,7 @@ def gen_steering_vec(ang_est_range, ang_est_resolution, num_ant):
             real = np.cos(mag)
             imag = np.sin(mag)
 
-            steering_vectors[kk, jj] = np.complex(real, imag)
+            steering_vectors[kk, jj] = complex(real, imag)
 
     return [num_vec, steering_vectors]
 
@@ -662,7 +683,7 @@ def gen_steering_vec_el(ang_est_range, ang_est_resolution, num_ant):
             real = np.cos(mag)
             imag = np.sin(mag)
 
-            steering_vectors[kk, jj] = np.complex(real, imag)
+            steering_vectors[kk, jj] = complex(real, imag)
 
     return [num_vec, steering_vectors]
 
@@ -1006,14 +1027,14 @@ def naive_xyz(virtual_ant, num_tx=3, num_rx=4, fft_size=64):
 
     # Zero pad azimuth
     azimuth_ant = virtual_ant[:2 * num_rx, :]
-    azimuth_ant_padded = np.zeros(shape=(fft_size, num_detected_obj), dtype=np.complex_)
+    azimuth_ant_padded = np.zeros(shape=(fft_size, num_detected_obj), dtype=np.complex128)
     azimuth_ant_padded[:2 * num_rx, :] = azimuth_ant
 
     # Process azimuth information
     azimuth_fft = np.fft.fft(azimuth_ant_padded, axis=0)
     k_max = np.argmax(np.abs(azimuth_fft), axis=0)  # shape = (num_detected_obj, )
     # peak_1 = azimuth_fft[k_max]
-    peak_1 = np.zeros_like(k_max, dtype=np.complex_)
+    peak_1 = np.zeros_like(k_max, dtype=np.complex128)
     for i in range(len(k_max)):
         peak_1[i] = azimuth_fft[k_max[i], i]
 
@@ -1023,14 +1044,14 @@ def naive_xyz(virtual_ant, num_tx=3, num_rx=4, fft_size=64):
 
     # Zero pad elevation
     elevation_ant = virtual_ant[2 * num_rx:, :]
-    elevation_ant_padded = np.zeros(shape=(fft_size, num_detected_obj), dtype=np.complex_)
+    elevation_ant_padded = np.zeros(shape=(fft_size, num_detected_obj), dtype=np.complex128)
     # elevation_ant_padded[:len(elevation_ant)] = elevation_ant
     elevation_ant_padded[:num_rx, :] = elevation_ant
 
     # Process elevation information
     elevation_fft = np.fft.fft(elevation_ant, axis=0)
     elevation_max = np.argmax(np.log2(np.abs(elevation_fft)), axis=0)  # shape = (num_detected_obj, )
-    peak_2 = np.zeros_like(elevation_max, dtype=np.complex_)
+    peak_2 = np.zeros_like(elevation_max, dtype=np.complex128)
     # peak_2 = elevation_fft[np.argmax(np.log2(np.abs(elevation_fft)))]
     for i in range(len(elevation_max)):
         peak_2[i] = elevation_fft[elevation_max[i], i]

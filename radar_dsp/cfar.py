@@ -13,6 +13,8 @@
 import numpy as np
 from scipy.ndimage import convolve1d
 
+from .utils import DOPPLER_IDX_TO_SIGNED
+
 """ Various cfar algorithm types
 
 From https://www.mathworks.com/help/phased/ug/constant-false-alarm-rate-cfar-detectors.html
@@ -400,7 +402,6 @@ def _cfar_windows(x, guard_len, noise_len, mode):
 WRAP_UP_LIST_IDX = lambda x, total: x if x >= 0 else x + total
 WRAP_DN_LIST_IDX = lambda x, total: x if x < total else x - total
 WRAP_DOPPLER_IDX = lambda x, num_doppler_bins: np.bitwise_and(x, num_doppler_bins - 1)
-DOPPLER_IDX_TO_SIGNED = lambda idx, fft_size: idx if idx < fft_size // 2 else idx - fft_size
 
 
 def peak_grouping(obj_raw,

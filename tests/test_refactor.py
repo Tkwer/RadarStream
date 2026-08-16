@@ -25,7 +25,9 @@ from hardware_interfaces import (
     select_preferred_cli_port,
 )
 from radar_dsp import utils
-from radar_dsp.utils import Window
+from radar_dsp.angle_estimation import gen_steering_vec, peak_search
+from radar_dsp.utils import DOPPLER_IDX_TO_SIGNED, Window
+from radar_dsp.zoom_fft import ZoomFFT
 from radar_profile import RadarProfileShape, parse_radar_profile_shape
 from runtime_state import RuntimeState
 
@@ -416,6 +418,35 @@ class DspUtilityTests(unittest.TestCase):
 
         expected = np.hanning(3).reshape(1, 3, 1) * data
         np.testing.assert_array_equal(expected, result)
+
+    def test_doppler_indices_support_vector_conversion(self):
+        result = DOPPLER_IDX_TO_SIGNED(np.array([0, 31, 32, 63]), 64)
+
+        np.testing.assert_array_equal([0, 31, -32, -1], result)
+
+    def test_angle_helpers_run_without_removed_numpy_aliases(self):
+        num_vectors, steering_vectors = gen_steering_vec(1, 1, 2)
+        num_peaks, peak_indices, total_power = peak_search(
+            np.array([0.0, 1.0, 0.0, 2.0, 0.0])
+        )
+
+        self.assertEqual(3, num_vectors)
+        self.assertEqual((3, 2), steering_vectors.shape)
+        self.assertEqual(2, num_peaks)
+        np.testing.assert_array_equal([1, 3], peak_indices)
+        self.assertEqual(3.0, total_power)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("scipy") is not None,
+        "optional SciPy dependency unavailable",
+    )
+    def test_zoom_fft_accepts_builtin_integer_sample_count(self):
+        zoom_fft = ZoomFFT(10, 20, 100, np.ones(100))
+        zoom_fft.original_sample_range = 1
+
+        _, _, fft_length, _, _ = zoom_fft.compute_zoomfft(10)
+
+        self.assertEqual(10, fft_length)
 
 
 class SignalProcessorTests(unittest.TestCase):

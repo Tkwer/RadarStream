@@ -18,6 +18,7 @@ import pyqtgraph as pg
 import time
 
 from app_config import DEFAULT_CONFIG
+from colormap_utils import matplotlib_colormap_names
 
 
 # ----新的combox 单机框任何地方都有响应 ---- #
@@ -578,9 +579,7 @@ class Ui_MainWindow(object):
         self.comboBox_7.addItems(list)
 
     def getcolorlist(self):
-        import matplotlib.cm
-
-        values=matplotlib.cm.cmap_d.keys()
+        values = matplotlib_colormap_names()
         self.comboBox.addItem("--select--")
         self.comboBox.addItem("customize")
         for value in values:

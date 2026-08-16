@@ -10,13 +10,12 @@
 # limitations under the License.
 # ==============================================================================
 
-import numpy as np
-from matplotlib import pyplot as plt
-from numpy import pi
-from numpy.fft import fft, fftfreq, fftshift
-from scipy import signal
 import logging
 import sys
+
+import numpy as np
+from numpy import pi
+from numpy.fft import fft, fftfreq, fftshift
 
 
 class ZoomFFT:
@@ -113,6 +112,8 @@ class ZoomFFT:
 
         """
         try:
+            from matplotlib import pyplot as plt
+
             d = 1 / self.fs if d is None else d
             X = self.compute_fft()
             freq = fftfreq(self.length, d)
@@ -145,6 +146,8 @@ class ZoomFFT:
             F (int): for internal use
         """
         try:
+            from scipy import signal
+
             bw_of_interest = self.high_freq - self.low_freq
 
             if self.length % bw_of_interest != 0:
@@ -166,7 +169,7 @@ class ZoomFFT:
                 logging.warning("resample resolution != original sample resolution. Zoom FFT Spectrum may distort!")
                 input("Press Enter to continue...")
 
-            xd = signal.resample(y, np.int(resample_number))
+            xd = signal.resample(y, int(resample_number))
 
             fftlen = len(xd)
             Xd = fft(xd)
@@ -190,6 +193,8 @@ class ZoomFFT:
             
         """
         try:
+            from matplotlib import pyplot as plt
+
             bw_of_interest = self.high_freq - self.low_freq
             resample_number = bw_of_interest / self.original_sample_range if resample_number is None else resample_number
             Xd, bw_factor, fftlen, Ld, F = self.compute_zoomfft(resample_number)

@@ -30,10 +30,42 @@ itself has no dependencies on Matplotlib! Hence the weird if clauses with
 """
 
 
+from collections.abc import Callable, Sequence
+
 import numpy as np
 from pyqtgraph.Qt import QtCore, QtGui
 import pyqtgraph
-import collections
+
+
+def matplotlib_colormap_names():
+    """Return colormap names using Matplotlib's public API across versions."""
+    try:
+        import matplotlib
+    except ImportError:
+        # The built-in custom map remains available when Matplotlib is optional.
+        return []
+
+    registry = getattr(matplotlib, "colormaps", None)
+    if registry is not None:
+        return sorted(registry)
+
+    # ``pyplot.colormaps`` predates the registry introduced in Matplotlib 3.5.
+    from matplotlib import pyplot as plt
+
+    return sorted(plt.colormaps())
+
+
+def get_matplotlib_colormap(name):
+    """Resolve a colormap without relying on the removed ``cm.cmap_d`` API."""
+    import matplotlib
+
+    registry = getattr(matplotlib, "colormaps", None)
+    if registry is not None:
+        return registry[name]
+
+    from matplotlib import cm
+
+    return cm.get_cmap(name)
 
 
 def cmapToColormap(cmap, nTicks=64):
@@ -48,7 +80,7 @@ def cmapToColormap(cmap, nTicks=64):
     # The parameter 'cmap' is a 'matplotlib.colors.LinearSegmentedColormap' instance ...
     if hasattr(cmap, '_segmentdata'):
         colordata = getattr(cmap, '_segmentdata')
-        if ('red' in colordata) and isinstance(colordata['red'], collections.Sequence):
+        if ('red' in colordata) and isinstance(colordata['red'], Sequence):
 
             # collect the color ranges from all channels into one dict to get unique indices
             posDict = {}
@@ -80,9 +112,9 @@ def cmapToColormap(cmap, nTicks=64):
             rgb_list = [[i, posDict[i]] for i in indexList]
 
         # Case #2: a dictionary with 'red'/'green'/'blue' values as functions (e.g. 'gnuplot')
-        elif ('red' in colordata) and isinstance(colordata['red'], collections.Callable):
+        elif ('red' in colordata) and isinstance(colordata['red'], Callable):
             indices = np.linspace(0., 1., nTicks)
-            luts = [np.clip(np.array(colordata[rgb](indices), dtype=np.float), 0, 1) * 255 \
+            luts = [np.clip(np.array(colordata[rgb](indices), dtype=float), 0, 1) * 255 \
                     for rgb in ('red', 'green', 'blue')]
             rgb_list = zip(indices, list(zip(*luts)))
 

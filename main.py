@@ -15,7 +15,7 @@ from pyqtgraph.Qt import QtCore, QtGui
 from serial.tools import list_ports
 
 from app_config import DEFAULT_CONFIG
-from colormap_utils import pg_get_cmap
+from colormap_utils import get_matplotlib_colormap, pg_get_cmap
 from data_pipeline import CaptureBuffer, DataProcessor, UdpListener
 from hardware_interfaces import (
     Dca1000Controller,
@@ -468,9 +468,7 @@ class RadarStreamApplication:
         if color_name == "customize":
             color_map = pg_get_cmap(color_name)
         else:
-            import matplotlib.pyplot as plt
-
-            color_map = pg_get_cmap(plt.cm.get_cmap(color_name))
+            color_map = pg_get_cmap(get_matplotlib_colormap(color_name))
         lookup_table = color_map.getLookupTable(0.0, 1.0, 256)
         for image in self.images.values():
             image.setLookupTable(lookup_table)

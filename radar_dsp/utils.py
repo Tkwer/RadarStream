@@ -35,6 +35,14 @@ PEAKVAL = 2
 
 MAX_OBJ_OUT = 100
 
+
+def DOPPLER_IDX_TO_SIGNED(idx, fft_size):
+    """Convert scalar or array FFT-bin indices to signed Doppler indices."""
+    indices = np.asarray(idx)
+    signed = np.where(indices < fft_size // 2, indices, indices - fft_size)
+    return signed.item() if indices.ndim == 0 else signed
+
+
 def windowing(input, window_type, axis=0):
     """Window the input based on given window type.
 
